@@ -1,0 +1,12 @@
+[Unit]
+Description=Grow the root ext4 filesystem to fill the subpartition on first boot
+ConditionPathExists=!/var/lib/tsv/growroot.done
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/sbin/resize2fs "$(/usr/bin/findmnt -no SOURCE /)" && /usr/bin/mkdir -p /var/lib/tsv && /usr/bin/touch /var/lib/tsv/growroot.done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

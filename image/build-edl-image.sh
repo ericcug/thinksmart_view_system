@@ -108,6 +108,10 @@ sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/tas5782m-load.se
              "$MNT/root/etc/systemd/system/tas5782m-load.service"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/thinksmart-zram.service" \
              "$MNT/root/etc/systemd/system/thinksmart-zram.service"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/tsv-growroot.service" \
+             "$MNT/root/etc/systemd/system/tsv-growroot.service"
+sudo ln -sf /etc/systemd/system/tsv-growroot.service \
+            "$MNT/root/etc/systemd/system/multi-user.target.wants/tsv-growroot.service"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system.conf.d/10-watchdog.conf" \
              "$MNT/root/etc/systemd/system.conf.d/10-watchdog.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/udev/rules.d/70-tsv-vcnl4200.rules" \
