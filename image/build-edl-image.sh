@@ -95,15 +95,29 @@ sudo install -m 644 "$TAS_FW" "$MNT/root/lib/firmware/tas5782m_dsp_lenovo_cd-187
 sudo install -m 644 "$TAS_FW" "$MNT/root/lib/firmware/tas5728m_dsp_lenovo_cd-18781y.bin"
 
 echo "== 4. Applying rootfs overlay (systemd units, watchdog, VCNL4200 udev rule & IIO daemons)"
-sudo cp -a "$ROOT/overlay/." "$MNT/root/"
-sudo chown -R 0:0 "$MNT/root/etc/modules-load.d/audio-cd18781y.conf" \
-                   "$MNT/root/etc/systemd/system/tas5782m-load.service" \
-                   "$MNT/root/etc/systemd/system/thinksmart-zram.service" \
-                   "$MNT/root/etc/systemd/system.conf.d/10-watchdog.conf" \
-                   "$MNT/root/etc/udev/rules.d/70-tsv-vcnl4200.rules" \
-                   "$MNT/root/usr/local/bin/idle-blanker.py" \
-                   "$MNT/root/usr/local/bin/screen-wake-daemon.py" \
-                   "$MNT/root/usr/local/bin/vcnl4200-proximity-daemon.py"
+sudo install -d -o 0 -g 0 "$MNT/root/etc/modules-load.d" \
+                          "$MNT/root/etc/systemd/system" \
+                          "$MNT/root/etc/systemd/system.conf.d" \
+                          "$MNT/root/etc/udev/rules.d" \
+                          "$MNT/root/usr/local/bin"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/modules-load.d/audio-cd18781y.conf" \
+             "$MNT/root/etc/modules-load.d/audio-cd18781y.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/modules-load.d/audio-cd18781y.conf" \
+             "$MNT/root/etc/modules-load.d/tas5782m.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/tas5782m-load.service" \
+             "$MNT/root/etc/systemd/system/tas5782m-load.service"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/thinksmart-zram.service" \
+             "$MNT/root/etc/systemd/system/thinksmart-zram.service"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system.conf.d/10-watchdog.conf" \
+             "$MNT/root/etc/systemd/system.conf.d/10-watchdog.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/udev/rules.d/70-tsv-vcnl4200.rules" \
+             "$MNT/root/etc/udev/rules.d/70-tsv-vcnl4200.rules"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/idle-blanker.py" \
+             "$MNT/root/usr/local/bin/idle-blanker.py"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/screen-wake-daemon.py" \
+             "$MNT/root/usr/local/bin/screen-wake-daemon.py"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/vcnl4200-proximity-daemon.py" \
+             "$MNT/root/usr/local/bin/vcnl4200-proximity-daemon.py"
 sudo ln -sf /etc/systemd/system/tas5782m-load.service \
             "$MNT/root/etc/systemd/system/multi-user.target.wants/tas5782m-load.service"
 
@@ -118,15 +132,47 @@ sudo rm -f "$MNT/root/etc/systemd/system/multi-user.target.wants/i2c1-pinmux-fix
            "$MNT/root/usr/local/sbin/qup-i2c-pinctrl-fix.sh"
 
 if [ -n "$V3_BIN" ]; then
-	echo "== 5. Installing V3 Rust binary ($V3_BIN) and disabling legacy Xiaozhi stack"
-	sudo install -m 755 "$V3_BIN" "$MNT/root/usr/local/bin/tsv-voice"
+	echo "== 5. Installing V3 Rust binary ($V3_BIN), config, model symlinks & disabling legacy Python stack"
+	sudo install -o 0 -g 0 -m 755 "$V3_BIN" "$MNT/root/usr/local/bin/tsv-voice"
+	sudo install -d -o 0 -g 0 "$MNT/root/etc/tsv"
+	sudo install -d -o 1000 -g 1000 "$MNT/root/opt/tsv/models/vad" \
+	                                "$MNT/root/opt/tsv/lib" \
+	                                "$MNT/root/var/cache/tsv/tts" \
+	                                "$MNT/root/var/lib/tsv"
+	if [ -f "$ROOT/tsv/deploy/config.example.yaml" ]; then
+		sudo install -o 1000 -g 1000 -m 644 "$ROOT/tsv/deploy/config.example.yaml" \
+		             "$MNT/root/etc/tsv/config.yaml"
+	fi
+	if [ -f "$ROOT/tsv/deploy/secrets.example.yaml" ]; then
+		sudo install -o 1000 -g 1000 -m 600 "$ROOT/tsv/deploy/secrets.example.yaml" \
+		             "$MNT/root/etc/tsv/secrets.yaml"
+	fi
+	# Symlink on-device ONNX models & shared libraries so tsv-voice works out-of-the-box
+	sudo ln -sfn /opt/thinksmart/client/0.1.0/models/kws-zh \
+	             "$MNT/root/opt/tsv/models/kws-zh"
+	sudo ln -sfn /home/ubuntu/xiaozhi-hub-server/main/xiaozhi-server/models/snakers4_silero-vad/src/silero_vad/data/silero_vad.onnx \
+	             "$MNT/root/opt/tsv/models/vad/silero_vad.onnx"
+	sudo ln -sfn /home/ubuntu/xiaozhi-hub-server/main/xiaozhi-server/models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03 \
+	             "$MNT/root/opt/tsv/models/asr"
+	sudo ln -sfn /home/ubuntu/xiaozhi-hub-server/main/xiaozhi-server/.venv/lib/python3.10/site-packages/sherpa_onnx/lib/libsherpa-onnx-c-api.so \
+	             "$MNT/root/opt/tsv/lib/libsherpa-onnx-c-api.so"
+	sudo ln -sfn /home/ubuntu/xiaozhi-hub-server/main/xiaozhi-server/.venv/lib/python3.10/site-packages/sherpa_onnx/lib/libonnxruntime.so \
+	             "$MNT/root/opt/tsv/lib/libonnxruntime.so"
+	sudo ln -sfn /opt/thinksmart/client/0.1.0/thinksmart_client/webrtc_apm/linux/arm64/libwebrtc_apm.so \
+	             "$MNT/root/opt/tsv/lib/libwebrtc_apm.so"
+
 	if [ -f "$ROOT/tsv/deploy/tsv-voice.service" ]; then
-		sudo install -m 644 "$ROOT/tsv/deploy/tsv-voice.service" "$MNT/root/etc/systemd/system/tsv-voice.service"
+		sudo install -o 0 -g 0 -m 644 "$ROOT/tsv/deploy/tsv-voice.service" \
+		             "$MNT/root/etc/systemd/system/tsv-voice.service"
 		sudo ln -sf /etc/systemd/system/tsv-voice.service \
 		            "$MNT/root/etc/systemd/system/multi-user.target.wants/tsv-voice.service"
 	fi
+	# Retire legacy Python voice/hub/sensor daemons (tsv-voice owns screen/sensors/UI natively)
 	sudo rm -f "$MNT/root/etc/systemd/system/multi-user.target.wants/thinksmart-client.service" \
-	           "$MNT/root/home/ubuntu/.config/systemd/user/default.target.wants/xiaozhi-hub.service"
+	           "$MNT/root/etc/systemd/system/multi-user.target.wants/screen-wake.service" \
+	           "$MNT/root/home/ubuntu/.config/systemd/user/default.target.wants/xiaozhi-hub.service" \
+	           "$MNT/root/home/ubuntu/.config/systemd/user/default.target.wants/idle-blanker.service" \
+	           "$MNT/root/etc/xdg/systemd/user/default.target.wants/vcnl4200-proximity-daemon.service"
 fi
 
 echo "== Unmounting & running e2fsck verification"
