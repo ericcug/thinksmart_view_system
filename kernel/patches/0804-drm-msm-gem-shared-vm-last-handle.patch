@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christopher Paslawski <chris@paslawski.me>
+Date: Sun, 25 Oct 2026 21:40:34 -0700
+Subject: [PATCH] drm: msm: release shared GEM VM state on the last handle
+
+Release the allocator's shared mapping when its final handle closes, including clients that never created a GPU VM. Preserve other shared mappings and the VM_BIND ownership model instead of leaking display buffers.
+
+Origin: Local ThinkSmart View port
+Source: https://github.com/msm8953-mainline/linux
+Base-commit: 755ffc44d5d8442adeec8bbaa02108478089c4d7
+Apply in filename order within this project.
+
+
+---
+diff --git a/drivers/gpu/drm/msm/msm_gem.c b/drivers/gpu/drm/msm/msm_gem.c
+index 9d686265b40a7a76e325368a4a512a85f7644f03..8acc14ae53ca47939fe6993fb7fc101daa689ba5 100644
+--- a/drivers/gpu/drm/msm/msm_gem.c
++++ b/drivers/gpu/drm/msm/msm_gem.c
+@@ -53,6 +53,8 @@ static void put_iova_spaces(struct drm_gem_object *obj, struct drm_gpuvm *vm,
+ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
+ {
+ 	struct msm_context *ctx = file->driver_priv;
++	struct msm_drm_private *priv = obj->dev->dev_private;
++	struct drm_gpuvm *vm = ctx->vm;
+ 	struct drm_exec exec;
+ 	int refcount;
+ 
+@@ -61,11 +63,13 @@ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
+ 	refcount = atomic_dec_return(&to_msm_bo(obj)->handle_count);
+ 
+ 	/*
+-	 * If VM isn't created yet, nothing to cleanup.  And in fact calling
+-	 * put_iova_spaces() with vm=NULL would be bad, in that it will tear-
+-	 * down the mappings of shared buffers in other contexts.
++	 * The final handle can belong to an allocator with no GPU VM. On GPUs
++	 * sharing a pagetable, earlier handle closes leave the mapping alive
++	 * until the final handle closes. Complete that deferred teardown.
+ 	 */
+-	if (!ctx->vm)
++	if (!vm && !refcount && priv->gpu)
++		vm = priv->gpu->vm;
++	if (!vm)
+ 		return;
+ 
+ 	/*
+@@ -73,10 +77,10 @@ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
+ 	 * close, but instead on implicit teardown of the VM when the device
+ 	 * is closed (see msm_gem_vm_close())
+ 	 */
+-	if (msm_context_is_vmbind(ctx))
++	if (!to_msm_vm(vm)->managed)
+ 		return;
+ 
+-	if (!to_msm_vm(ctx->vm)->pid && refcount > 0)
++	if (!to_msm_vm(vm)->pid && refcount > 0)
+ 		return;
+ 
+ 	/*
+@@ -86,8 +90,8 @@ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
+ 	dma_resv_wait_timeout(obj->resv, DMA_RESV_USAGE_BOOKKEEP, false,
+ 			      MAX_SCHEDULE_TIMEOUT);
+ 
+-	msm_gem_lock_vm_and_obj(&exec, obj, ctx->vm);
+-	put_iova_spaces(obj, ctx->vm, true, "close");
++	msm_gem_lock_vm_and_obj(&exec, obj, vm);
++	put_iova_spaces(obj, vm, true, "close");
+ 	drm_exec_fini(&exec);     /* drop locks */
+ }
+ 

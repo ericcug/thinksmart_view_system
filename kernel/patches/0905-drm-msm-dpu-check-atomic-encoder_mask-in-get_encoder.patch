@@ -1,0 +1,29 @@
+From 1b2581eb24bf170223dc8a612264586de9b88d01 Mon Sep 17 00:00:00 2001
+From: Eric <eric@localhost>
+Date: Sun, 8 Nov 2026 00:08:12 +0800
+Subject: [PATCH 5/7] drm/msm/dpu: check atomic encoder_mask in
+ get_encoder_from_crtc
+
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+index 42d0a529b..b2909f6e1 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_crtc.c
+@@ -56,6 +56,11 @@ static struct drm_encoder *get_encoder_from_crtc(struct drm_crtc *crtc)
+ 	struct drm_device *dev = crtc->dev;
+ 	struct drm_encoder *encoder;
+ 
++	if (crtc->state) {
++		drm_for_each_encoder_mask(encoder, dev, crtc->state->encoder_mask)
++			return encoder;
++	}
++
+ 	drm_for_each_encoder(encoder, dev)
+ 		if (encoder->crtc == crtc)
+ 			return encoder;
+-- 
+2.47.3
+

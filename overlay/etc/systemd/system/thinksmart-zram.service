@@ -1,0 +1,19 @@
+[Unit]
+Description=Compressed swap in RAM (zram)
+DefaultDependencies=no
+After=local-fs.target
+Before=swap.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/bin/sh -c 'echo N > /sys/module/msm/parameters/enable_eviction'
+ExecStartPre=/sbin/modprobe zram
+ExecStart=/usr/sbin/zramctl /dev/zram0 --size 1900M
+ExecStart=/usr/sbin/mkswap /dev/zram0
+ExecStart=/usr/sbin/swapon --priority 100 /dev/zram0
+ExecStop=/usr/sbin/swapoff /dev/zram0
+ExecStop=/bin/sh -c 'echo 1 > /sys/block/zram0/reset'
+
+[Install]
+WantedBy=swap.target

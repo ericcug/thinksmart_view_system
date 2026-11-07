@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Paslawski <chris@paslawski.me>
+Date: Wed, 4 Nov 2026 16:49:58 -0800
+Subject: [PATCH] arm64: dts: qcom: thinksmart: describe accelerometer mounting
+
+The existing BMA253 node and driver already provide IIO sampling and
+interrupts. Describe the PCB orientation relative to the native portrait
+display: negate X and Y, preserving Z. This is a rotation, not a sensor
+offset or gain calibration.
+
+Coarse pose checks on this unit agree with the reference ports: upright
+has negative raw Y, a clockwise quarter-turn has positive raw X, and a
+screen-up pose has positive raw Z. Do not infer precise calibration from
+hand-held measurements.
+
+Origin: Local ThinkSmart View port
+Source: https://github.com/rickx/ubuntu-thinksmart/blob/main/sources/rotation-daemon.py
+Reference: https://github.com/jethac/lenovo-thinksmart-view/blob/1f99f7f09c26074d53064d7bb1fada262cbef10a/streams/idle-rotate/NOTES.md
+Base-commit: 755ffc44d5d8442adeec8bbaa02108478089c4d7
+Apply in filename order within this project.
+
+---
+diff --git a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+--- a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
++++ b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+@@ -105,5 +105,9 @@
+ 			pinctrl-0 = <&accel_int_default>;
+ 			pinctrl-names = "default";
++
++			mount-matrix = "-1", "0", "0",
++				       "0", "-1", "0",
++				       "0", "0", "1";
+ 		};
+ 
+ 		light-sensor@51 {

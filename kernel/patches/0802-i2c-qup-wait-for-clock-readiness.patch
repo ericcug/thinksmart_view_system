@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christopher Paslawski <chris@paslawski.me>
+Date: Sun, 25 Oct 2026 21:40:34 -0700
+Subject: [PATCH] i2c: qup: wait for clock readiness before pausing v2 transfers
+
+The FIFO write completion path accepts OUTPUT_SERVICE before OUTPUT_DONE
+has necessarily become visible. Reconfiguring the next message at this
+point can race the controller's progress.
+
+Qualcomm's downstream driver waits for the output FIFO to drain and the
+I2C clock state to become idle or forced low between messages. Apply that
+readiness check before pausing a v2 PIO sub-transfer, with a bounded poll
+based on the bus bit period. Do not change DMA or final-message handling.
+
+This remains a candidate fix for the ThinkSmart's initial write/read
+stall, not a confirmed fix for the sporadic amplifier initialization
+timeout.
+
+Origin: Local ThinkSmart View port
+Source: https://github.com/msm8953-mainline/linux
+Base-commit: 755ffc44d5d8442adeec8bbaa02108478089c4d7
+
+---
+diff --git a/drivers/i2c/busses/i2c-qup.c b/drivers/i2c/busses/i2c-qup.c
+index ee7915ee2ba2f0883129871408a414b1ea2e95bd..8b72c33ea93dfb1ff750eb3b792f1e0a85c00921 100644
+--- a/drivers/i2c/busses/i2c-qup.c
++++ b/drivers/i2c/busses/i2c-qup.c
+@@ -7,6 +7,7 @@
+ 
+ #include <linux/acpi.h>
+ #include <linux/atomic.h>
++#include <linux/bitfield.h>
+ #include <linux/clk.h>
+ #include <linux/delay.h>
+ #include <linux/dmaengine.h>
+@@ -17,6 +18,7 @@
+ #include <linux/interconnect.h>
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
++#include <linux/iopoll.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+@@ -114,6 +116,10 @@
+ /* Status, Error flags */
+ #define I2C_STATUS_WR_BUFFER_FULL	BIT(0)
+ #define I2C_STATUS_BUS_ACTIVE		BIT(8)
++#define I2C_STATUS_CLK_STATE_MASK		GENMASK(15, 13)
++#define I2C_CLK_RESET_BUSIDLE_STATE	0
++#define I2C_CLK_FORCED_LOW_STATE		5
++#define QUP_MAX_CLK_STATE_BITS		300
+ #define I2C_STATUS_ERROR_MASK		0x38000fc
+ #define QUP_STATUS_ERROR_FLAGS		0x7c
+ 
+@@ -1363,6 +1369,34 @@ send_last_word:
+ 	writel(blk->tx_fifo_data, qup->base + QUP_OUT_FIFO_BASE);
+ }
+ 
++static int qup_i2c_poll_clock_ready(struct qup_i2c_dev *qup)
++{
++	unsigned long bit_us = qup->one_byte_t / 9;
++	u32 status;
++	int ret;
++
++	ret = read_poll_timeout(readl, status,
++		(FIELD_GET(I2C_STATUS_CLK_STATE_MASK, status) ==
++		 I2C_CLK_RESET_BUSIDLE_STATE ||
++		 FIELD_GET(I2C_STATUS_CLK_STATE_MASK, status) ==
++		 I2C_CLK_FORCED_LOW_STATE) &&
++		!(readl(qup->base + QUP_OPERATIONAL) & QUP_OUT_NOT_EMPTY),
++		bit_us, QUP_MAX_CLK_STATE_BITS * bit_us, false,
++		qup->base + QUP_I2C_STATUS);
++	if (ret) {
++		dev_err_ratelimited(qup->dev,
++			"clock transition timeout: i2c=%#x op=%#x\n",
++			status, readl(qup->base + QUP_OPERATIONAL));
++		writel(1, qup->base + QUP_SW_RESET);
++		return ret;
++	}
++
++	if (qup->bus_err || qup->qup_err)
++		return (qup->bus_err & QUP_I2C_NACK_FLAG) ? -ENXIO : -EIO;
++
++	return 0;
++}
++
+ /*
+  * Main transfer function which read or write i2c data.
+  * The QUP v2 supports reconfiguration during run in which multiple i2c sub
+@@ -1438,6 +1472,10 @@ qup_i2c_conf_xfer_v2(struct qup_i2c_dev *qup, bool is_rx, bool is_first,
+ 
+ 	/* Move to pause state for all the transfers, except last one */
+ 	if (change_pause_state) {
++		ret = qup_i2c_poll_clock_ready(qup);
++		if (ret)
++			goto err;
++
+ 		ret = qup_i2c_change_state(qup, QUP_PAUSE_STATE);
+ 		if (ret)
+ 			goto err;

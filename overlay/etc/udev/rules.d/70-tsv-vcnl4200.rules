@@ -1,0 +1,3 @@
+# VCNL4200 ambient light and proximity sensor (vcnl4000 IIO driver).
+# Enforces 1 pulse, 50mA gate drive, 9T (864us) proximity IT, 100ms ALS IT, and group read access.
+ACTION=="add", SUBSYSTEM=="iio", ATTR{name}=="vcnl4000", ATTR{in_proximity_oversampling_ratio}="1", ATTR{in_proximity_calibbias}="0.050000", ATTR{in_proximity_integration_time}="0.000864", ATTR{in_illuminance_integration_time}="0.100000", MODE="0664", GROUP="i2c"

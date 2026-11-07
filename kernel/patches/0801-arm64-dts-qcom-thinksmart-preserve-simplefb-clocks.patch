@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christopher Paslawski <chris@paslawski.me>
+Date: Sun, 25 Oct 2026 21:40:34 -0700
+Subject: [PATCH] arm64: dts: qcom: apq8053-lenovo: preserve simplefb clocks
+
+lk2nd can hand over an actively scanning framebuffer, but the dynamically
+created simple-framebuffer node does not describe its clocks. Unused-clock
+cleanup therefore gates the display pipeline before the native DRM driver
+takes ownership.
+
+On the ThinkSmart View this is associated with poor execution throughput
+across all CPU cores and an FT8201 identity-read failure. Keeping only the
+display clocks referenced by simplefb restores normal startup throughput,
+without disabling clock cleanup globally.
+
+Provide a disabled framebuffer template with the display pipeline's clock
+references. lk2nd reuses this node, supplies its relocated memory and mode
+information, and enables it. The simplefb driver releases the clock
+references when DRM removes the firmware framebuffer.
+
+Origin: Local ThinkSmart View port
+Source: https://github.com/msm8953-mainline/linux
+Base-commit: 755ffc44d5d8442adeec8bbaa02108478089c4d7
+
+---
+diff --git a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+index bf7c2f2219ec41fbaf584b13dbd2d43a67d2a332..1adeb2706bf18ef46ffc4bb59c8cd9be95eee5cc 100644
+--- a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
++++ b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+@@ -25,6 +25,21 @@
+ 	qcom,msm-id = <QCOM_ID_APQ8053 0>;
+ 	qcom,board-id = <0x1010520 0>;
+ 
++	chosen {
++		/* lk2nd supplies the framebuffer geometry before enabling this node. */
++		framebuffer {
++			compatible = "simple-framebuffer";
++			clocks = <&gcc GCC_MDSS_AHB_CLK>,
++				 <&gcc GCC_MDSS_AXI_CLK>,
++				 <&gcc GCC_MDSS_VSYNC_CLK>,
++				 <&gcc GCC_MDSS_MDP_CLK>,
++				 <&gcc GCC_MDSS_BYTE0_CLK>,
++				 <&gcc GCC_MDSS_PCLK0_CLK>,
++				 <&gcc GCC_MDSS_ESC0_CLK>;
++			status = "disabled";
++		};
++	};
++
+ 	/* Define mmc aliases so they stay the same across boots */
+ 	aliases {
+ 		mmc0 = &sdhc_1;

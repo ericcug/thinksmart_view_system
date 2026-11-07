@@ -1,0 +1,74 @@
+From db84c9f2882380ba5221d20ba5c2a4b72b22ffd9 Mon Sep 17 00:00:00 2001
+From: Eric <eric@localhost>
+Date: Sun, 8 Nov 2026 00:08:12 +0800
+Subject: [PATCH 1/7] arm64: dts: qcom: apq8053-lenovo-cd-18781y: dual-variant
+ panel/touch, i2c1 sleep mux, disable IPA, flat venus fw
+
+---
+ .../boot/dts/qcom/apq8053-lenovo-cd-18781y.dts    | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+index 7f490f128..1c6f14ce3 100644
+--- a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
++++ b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+@@ -395,7 +395,7 @@ &mdss_dsi0 {
+ 	status = "okay";
+ 
+ 	panel: panel@0 {
+-		compatible = "lenovo,cd-18781y-ft8201";
++		compatible = "lenovo,cd-18781y-panel";
+ 		reg = <0>;
+ 
+ 		pinctrl-names = "default", "sleep";
+@@ -446,6 +446,9 @@ &ibb {
+ };
+ 
+ &i2c_1 {
++	pinctrl-0 = <&i2c_1_default>;
++	pinctrl-1 = <&i2c_1_default>;
++	pinctrl-names = "default", "sleep";
+ 	status = "okay";
+ 
+ 	speaker_amp: amplifier@49 {
+@@ -482,7 +485,7 @@ ft8201_ts: touchscreen@38 {
+ 
+ 		wakeup-source;
+ 
+-		status = "okay";
++		status = "disabled";
+ 	};
+ 
+ 	hx83100a_ts: touchscreen@48 {
+@@ -502,6 +505,8 @@ hx83100a_ts: touchscreen@48 {
+ 		touchscreen-size-x = <800>;
+ 		touchscreen-size-y = <1280>;
+ 
++		wakeup-source;
++
+ 		status = "disabled";
+ 	};
+ };
+@@ -964,6 +969,10 @@ &uart_0 {
+ 	status = "okay";
+ };
+ 
++&ipa {
++	status = "disabled";
++};
++
+ &usb3 {
+ 	/* No CC negotiation on this port; device mode is the strap default (GPIO 12, USB ID on GPIO 5). */
+ 	dr_mode = "peripheral";
+@@ -973,7 +982,7 @@ &usb3 {
+ 
+ &venus {
+ 	/* Signed for this board; loaded from the device's own modem partition. */
+-	firmware-name = "qcom/msm8953/lenovo/cd-18781y/venus.mdt";
++	firmware-name = "venus.mdt";
+ 
+ 	status = "okay";
+ };
+-- 
+2.47.3
+

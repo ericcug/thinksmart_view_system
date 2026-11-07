@@ -1,0 +1,115 @@
+From 9a7009fae3678ee148e20e8f5076bad0c114ba51 Mon Sep 17 00:00:00 2001
+From: Eric <eric@localhost>
+Date: Sun, 8 Nov 2026 00:08:12 +0800
+Subject: [PATCH 4/7] iio: light: vcnl4000: safe VCNL4200 1-pulse/50mA/9T init
+ and integer raw proximity counts
+
+---
+ drivers/iio/light/vcnl4000.c | 81 +++++++++++++++++++++++++-----------
+ 1 file changed, 56 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/iio/light/vcnl4000.c b/drivers/iio/light/vcnl4000.c
+index 614de5816..164c5e4b8 100644
+--- a/drivers/iio/light/vcnl4000.c
++++ b/drivers/iio/light/vcnl4000.c
+@@ -392,31 +392,57 @@ static int vcnl4200_init(struct vcnl4000_data *data)
+ 	if (ret)
+ 		return ret;
+ 
+-	/* Use 16 bits proximity sensor readings */
+-	ret = i2c_smbus_read_word_data(client, VCNL4200_PS_CONF1);
+-	if (ret < 0)
+-		return ret;
++	if (id == VCNL4200_PROD_ID) {
++		/*
++		 * Safe hardware defaults for VCNL4200:
++		 * - ALS: 100 ms integration time (IT=1 -> 12000 uLux/count)
++		 * - PS_CONF1/2: 16-bit HD, PS_IT=9T (864 us, index 5) for
++		 *   clean ~25 cm hand detection with a single pulse, PS_SD=1
++		 * - PS_CONF3/MS: Active-Force mode (PS_AF=1), 1 pulse (MPS=0),
++		 *   50 mA gate drive (LED_I=0). Never default to 8 pulses @ 120mA.
++		 */
++		data->vcnl4200_al.sampling_rate = ktime_set(0, 120000 * 1000);
++		data->al_scale = 12000;
++		data->ps_scale = 1;
++
++		ret = i2c_smbus_write_word_data(client, VCNL4200_AL_CONF,
++						FIELD_PREP(VCNL4040_ALS_CONF_IT, 1) |
++						VCNL4040_ALS_CONF_ALS_SHUTDOWN);
++		if (ret < 0)
++			return ret;
+ 
+-	regval = ret | VCNL4040_PS_CONF2_PS_HD;
+-	ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF1, regval);
+-	if (ret < 0)
+-		return ret;
++		regval = VCNL4040_PS_CONF2_PS_HD |
++			 FIELD_PREP(VCNL4040_PS_CONF2_PS_IT, 5) |
++			 VCNL4040_PS_CONF1_PS_SHUTDOWN;
++		ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF1, regval);
++		if (ret < 0)
++			return ret;
+ 
+-	/* Align proximity sensor sample rate to 16 bits data width */
+-	ret = i2c_smbus_read_word_data(client, VCNL4200_PS_CONF3);
+-	if (ret < 0)
+-		return ret;
++		regval = VCNL4040_PS_CONF3_PS_AF;
++		ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF3, regval);
++		if (ret < 0)
++			return ret;
++	} else {
++		/* Use 16 bits proximity sensor readings */
++		ret = i2c_smbus_read_word_data(client, VCNL4200_PS_CONF1);
++		if (ret < 0)
++			return ret;
+ 
+-	/*
+-	 * Active force mode: the IR LED is pulsed only for a proximity read,
+-	 * not continuously while the sensor is powered (which includes every
+-	 * ambient light read). Normal mode is used only while a proximity
+-	 * event is enabled, see vcnl4200_set_ps_af().
+-	 */
+-	regval = ret | VCNL4040_CONF3_PS_SAMPLE_16BITS | VCNL4040_PS_CONF3_PS_AF;
+-	ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF3, regval);
+-	if (ret < 0)
+-		return ret;
++		regval = ret | VCNL4040_PS_CONF2_PS_HD;
++		ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF1, regval);
++		if (ret < 0)
++			return ret;
++
++		/* Align proximity sensor sample rate to 16 bits data width */
++		ret = i2c_smbus_read_word_data(client, VCNL4200_PS_CONF3);
++		if (ret < 0)
++			return ret;
++
++		regval = ret | VCNL4040_CONF3_PS_SAMPLE_16BITS | VCNL4040_PS_CONF3_PS_AF;
++		ret = i2c_smbus_write_word_data(client, VCNL4200_PS_CONF3, regval);
++		if (ret < 0)
++			return ret;
++	}
+ 
+ 	return 0;
+ };
+@@ -911,9 +937,14 @@ static int vcnl4000_read_raw(struct iio_dev *indio_dev,
+ 			break;
+ 		case IIO_PROXIMITY:
+ 			ret = data->chip_spec->measure_proximity(data, val);
+-			*val2 = data->ps_scale;
+-			if (!ret)
+-				ret = IIO_VAL_FRACTIONAL;
++			if (!ret) {
++				if (data->ps_scale > 1) {
++					*val2 = data->ps_scale;
++					ret = IIO_VAL_FRACTIONAL;
++				} else {
++					ret = IIO_VAL_INT;
++				}
++			}
+ 			break;
+ 		default:
+ 			ret = -EINVAL;
+-- 
+2.47.3
+

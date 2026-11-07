@@ -1,0 +1,33 @@
+# Large binary images, full-eMMC backups, and EDL flashing workspace
+flash/
+*.img
+*.img.xz
+*.img.zst
+*.bin
+
+# Third-party reference repositories and local tools
+references/
+edl-src/
+edl-venv/
+
+# Standalone V2/V3 Rust application sub-repository (tracked in its own git repo)
+tsv/
+
+# Kernel source trees, build outputs, and staged modules
+kernel/linux-7.3/
+kernel/build-7.3/
+kernel/stage/
+kernel/*.tar.gz
+kernel/.deploy.*
+
+# Downloaded Lenovo GPL archives and generated firmware blobs
+firmware/dl/
+firmware/out/
+
+# Local private/archive deployment logs
+docs/archive/
+
+# Editor & OS temporary files
+*.swp
+*~
+.DS_Store

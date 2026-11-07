@@ -1,0 +1,12 @@
+[Unit]
+Description=Load the TAS5782M speaker amplifier codec
+After=local-fs.target msm-firmware-loader.service adsp-start.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe snd-soc-tas5782m
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

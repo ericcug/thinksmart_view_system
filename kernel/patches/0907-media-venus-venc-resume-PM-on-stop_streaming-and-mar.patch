@@ -1,0 +1,55 @@
+--- a/drivers/media/platform/qcom/venus/venc.c
++++ b/drivers/media/platform/qcom/venus/venc.c
+@@ -537,6 +537,8 @@
+ 	}
+ }
+ 
++static int venc_pm_get_put(struct venus_inst *inst);
++
+ static int
+ venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
+ {
+@@ -552,6 +554,7 @@
+ 
+ 	if (cmd->cmd == V4L2_ENC_CMD_STOP &&
+ 	    inst->enc_state == VENUS_ENC_STATE_ENCODING) {
++		venc_pm_get_put(inst);
+ 		/*
+ 		 * Implement V4L2_ENC_CMD_STOP by enqueue an empty buffer on
+ 		 * encoder input to signal EOS.
+@@ -1356,13 +1359,22 @@
+ 	mutex_unlock(&inst->lock);
+ }
+ 
++static void venc_stop_streaming(struct vb2_queue *q)
++{
++	struct venus_inst *inst = vb2_get_drv_priv(q);
++
++	venc_pm_get(inst);
++	venus_helper_vb2_stop_streaming(q);
++	venc_pm_put(inst, true);
++}
++
+ static const struct vb2_ops venc_vb2_ops = {
+ 	.queue_setup = venc_queue_setup,
+ 	.buf_init = venc_buf_init,
+ 	.buf_cleanup = venc_buf_cleanup,
+ 	.buf_prepare = venus_helper_vb2_buf_prepare,
+ 	.start_streaming = venc_start_streaming,
+-	.stop_streaming = venus_helper_vb2_stop_streaming,
++	.stop_streaming = venc_stop_streaming,
+ 	.buf_queue = venc_vb2_buf_queue,
+ };
+ 
+@@ -1393,8 +1405,9 @@
+ 		vb->planes[0].data_offset = data_offset;
+ 		vb->timestamp = timestamp_us * NSEC_PER_USEC;
+ 		vbuf->sequence = inst->sequence_cap++;
+-		if ((vbuf->flags & V4L2_BUF_FLAG_LAST) &&
+-		    inst->enc_state == VENUS_ENC_STATE_DRAIN) {
++		if (inst->enc_state == VENUS_ENC_STATE_DRAIN &&
++		    ((vbuf->flags & V4L2_BUF_FLAG_LAST) || !bytesused)) {
++			vbuf->flags |= V4L2_BUF_FLAG_LAST;
+ 			inst->enc_state = VENUS_ENC_STATE_STOPPED;
+ 		}
+ 	} else {

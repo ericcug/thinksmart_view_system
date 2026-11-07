@@ -1,0 +1,141 @@
+From: ThinkSmart mainline integration
+Subject: [PATCH] drm/panel: preserve FT8201 touch resources during blanking
+
+The FT8201 in-cell touch controller stops producing interrupts when panel
+unprepare asserts reset or disables VSN/VSP. The touchscreen's separate
+VCC/IOVCC supplies do not suffice. Retaining both panel bias and released
+reset preserves real touch interrupts with the existing DCS display-off
+and enter-sleep commands; retaining either resource alone does not.
+
+Keep these resources through ordinary blanking and resume without
+resetting the live touch controller. Track regulator ownership to avoid
+additional enable references on each cycle. Failed transitions, driver
+removal and shutdown still assert reset and release owned supplies.
+There are no diagnostic parameters or routine transition traces.
+
+Source: https://github.com/msm8953-mainline/linux
+
+diff --git a/drivers/gpu/drm/panel/msm8953-generated/panel-lenovo-cd-18781y-ft8201.c b/drivers/gpu/drm/panel/msm8953-generated/panel-lenovo-cd-18781y-ft8201.c
+--- a/drivers/gpu/drm/panel/msm8953-generated/panel-lenovo-cd-18781y-ft8201.c
++++ b/drivers/gpu/drm/panel/msm8953-generated/panel-lenovo-cd-18781y-ft8201.c
+@@ -19,6 +19,8 @@ struct boyift8201_800p {
+ 	struct mipi_dsi_device *dsi;
+ 	struct regulator_bulk_data *supplies;
+ 	struct gpio_desc *reset_gpio;
++	bool supplies_enabled;
++	bool reset_released;
+ };
+ 
+ static const struct regulator_bulk_data boyift8201_800p_supplies[] = {
+@@ -40,6 +42,27 @@ static void boyift8201_800p_reset(struct boyift8201_800p *ctx)
+ 	usleep_range(5000, 6000);
+ 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+ 	msleep(50);
++	ctx->reset_released = true;
++}
++
++static int boyift8201_800p_power_off(struct boyift8201_800p *ctx)
++{
++	int ret;
++
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	ctx->reset_released = false;
++
++	if (!ctx->supplies_enabled)
++		return 0;
++
++	ret = regulator_bulk_disable(ARRAY_SIZE(boyift8201_800p_supplies), ctx->supplies);
++	if (ret < 0) {
++		dev_err(&ctx->dsi->dev, "Failed to disable regulators: %d\n", ret);
++		return ret;
++	}
++
++	ctx->supplies_enabled = false;
++	return 0;
+ }
+ 
+ static int boyift8201_800p_on(struct boyift8201_800p *ctx)
+@@ -71,21 +94,26 @@ static int boyift8201_800p_prepare(struct drm_panel *panel)
+ {
+ 	struct boyift8201_800p *ctx = to_boyift8201_800p(panel);
+ 	struct device *dev = &ctx->dsi->dev;
++	bool retained = ctx->supplies_enabled && ctx->reset_released;
+ 	int ret;
+ 
+-	ret = regulator_bulk_enable(ARRAY_SIZE(boyift8201_800p_supplies), ctx->supplies);
+-	if (ret < 0) {
+-		dev_err(dev, "Failed to enable regulators: %d\n", ret);
+-		return ret;
++	/* Retained rails must not acquire a second regulator enable reference. */
++	if (!ctx->supplies_enabled) {
++		ret = regulator_bulk_enable(ARRAY_SIZE(boyift8201_800p_supplies), ctx->supplies);
++		if (ret < 0) {
++			dev_err(dev, "Failed to enable regulators: %d\n", ret);
++			return ret;
++		}
++		ctx->supplies_enabled = true;
+ 	}
+ 
+-	boyift8201_800p_reset(ctx);
++	if (!retained)
++		boyift8201_800p_reset(ctx);
+ 
+ 	ret = boyift8201_800p_on(ctx);
+ 	if (ret < 0) {
+ 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
+-		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+-		regulator_bulk_disable(ARRAY_SIZE(boyift8201_800p_supplies), ctx->supplies);
++		boyift8201_800p_power_off(ctx);
+ 		return ret;
+ 	}
+ 
+@@ -99,13 +127,13 @@ static int boyift8201_800p_unprepare(struct drm_panel *panel)
+ 	int ret;
+ 
+ 	ret = boyift8201_800p_off(ctx);
+-	if (ret < 0)
++	if (ret < 0) {
+ 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
++		boyift8201_800p_power_off(ctx);
++	}
+ 
+-	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+-	regulator_bulk_disable(ARRAY_SIZE(boyift8201_800p_supplies), ctx->supplies);
+-
+-	return 0;
++	/* In-cell touch needs the panel bias supplies and released reset. */
++	return ret;
+ }
+ 
+ static const struct drm_display_mode boyift8201_800p_mode = {
+@@ -185,11 +213,22 @@ static int boyift8201_800p_probe(struct mipi_dsi_device *dsi)
+ 	return 0;
+ }
+ 
++static void boyift8201_800p_shutdown(struct mipi_dsi_device *dsi)
++{
++	struct boyift8201_800p *ctx = mipi_dsi_get_drvdata(dsi);
++
++	drm_panel_disable(&ctx->panel);
++	drm_panel_unprepare(&ctx->panel);
++	boyift8201_800p_power_off(ctx);
++}
++
+ static void boyift8201_800p_remove(struct mipi_dsi_device *dsi)
+ {
+ 	struct boyift8201_800p *ctx = mipi_dsi_get_drvdata(dsi);
+ 	int ret;
+ 
++	boyift8201_800p_shutdown(dsi);
++
+ 	ret = mipi_dsi_detach(dsi);
+ 	if (ret < 0)
+ 		dev_err(&dsi->dev, "Failed to detach from DSI host: %d\n", ret);
+@@ -206,6 +245,7 @@ MODULE_DEVICE_TABLE(of, boyift8201_800p_of_match);
+ static struct mipi_dsi_driver boyift8201_800p_driver = {
+ 	.probe = boyift8201_800p_probe,
+ 	.remove = boyift8201_800p_remove,
++	.shutdown = boyift8201_800p_shutdown,
+ 	.driver = {
+ 		.name = "panel-boyift8201-800p",
+ 		.of_match_table = boyift8201_800p_of_match,

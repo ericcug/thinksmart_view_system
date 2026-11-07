@@ -1,0 +1,71 @@
+From d53e0726140e09808354ed467819ca637a75f320 Mon Sep 17 00:00:00 2001
+From: Eric <eric@localhost>
+Date: Sun, 8 Nov 2026 00:08:12 +0800
+Subject: [PATCH 3/7] ASoC: qcom: qdsp6: fix q6asm unmap OOB and always free
+ buffer state on re-prepare
+
+---
+ sound/soc/qcom/qdsp6/q6asm-dai.c | 19 +++++++------------
+ sound/soc/qcom/qdsp6/q6asm.c     | 10 ++++++----
+ 2 files changed, 13 insertions(+), 16 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6asm-dai.c b/sound/soc/qcom/qdsp6/q6asm-dai.c
+index 4f09fdd40..3e3ae763e 100644
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c
+@@ -224,20 +224,15 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
+ 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
+ 	/* rate and channels are sent to audio driver */
+ 	if (prtd->state == Q6ASM_STREAM_RUNNING) {
+-		/* clear the previous setup if any  */
++		/* clear the previous setup if any; always release routing and
++		 * buffer state even if a DSP command times out.
++		 */
+ 		ret = q6asm_cmd(prtd->audio_client, prtd->stream_id, CMD_CLOSE);
+-		if (ret < 0) {
+-			dev_err(dev, "Failed to close q6asm stream %d\n", prtd->stream_id);
+-			return ret;
+-		}
+-
+-		ret = q6asm_unmap_memory_regions(substream->stream, prtd->audio_client);
+-		if (ret < 0) {
+-			dev_err(dev, "Failed to unmap memory regions for q6asm stream %d\n",
+-				prtd->stream_id);
+-			return ret;
+-		}
++		if (ret < 0)
++			dev_err(dev, "Failed to close q6asm stream %d: %d\n",
++				prtd->stream_id, ret);
+ 
++		q6asm_unmap_memory_regions(substream->stream, prtd->audio_client);
+ 		q6routing_stream_close(soc_prtd->dai_link->id,
+ 					 substream->stream);
+ 		prtd->state = Q6ASM_STREAM_STOPPED;
+diff --git a/sound/soc/qcom/qdsp6/q6asm.c b/sound/soc/qcom/qdsp6/q6asm.c
+index de0bd8fd0..82f05a5c9 100644
+--- a/sound/soc/qcom/qdsp6/q6asm.c
++++ b/sound/soc/qcom/qdsp6/q6asm.c
+@@ -402,14 +402,16 @@ int q6asm_unmap_memory_regions(unsigned int dir, struct audio_client *ac)
+ 
+ 	cnt = port->num_periods - 1;
+ 	if (cnt >= 0) {
+-		rc = __q6asm_memory_unmap(ac, port->buf[dir].phys, dir);
+-		if (rc < 0) {
++		rc = __q6asm_memory_unmap(ac, port->buf[0].phys, dir);
++		if (rc < 0)
+ 			dev_err(ac->dev, "%s: Memory_unmap_regions failed %d\n",
+ 				__func__, rc);
+-			goto err;
+-		}
+ 	}
+ 
++	/* Always free local buffer state so a subsequent prepare never hits
++	 * stale port->buf ("Buffer already allocated") if the DSP timed out.
++	 */
++	port->mem_map_handle = 0;
+ 	q6asm_audio_client_free_buf(ac, port);
+ 
+ err:
+-- 
+2.47.3
+
