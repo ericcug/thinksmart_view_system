@@ -122,6 +122,10 @@ sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/screen-wake-daemon.py
              "$MNT/root/usr/local/bin/screen-wake-daemon.py"
 sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/vcnl4200-proximity-daemon.py" \
              "$MNT/root/usr/local/bin/vcnl4200-proximity-daemon.py"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/thinksmart-kiosk-app" \
+             "$MNT/root/usr/local/bin/thinksmart-kiosk-app"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/thinksmart-kiosk.py" \
+             "$MNT/root/usr/local/bin/thinksmart-kiosk.py"
 sudo ln -sf /etc/systemd/system/tas5782m-load.service \
             "$MNT/root/etc/systemd/system/multi-user.target.wants/tas5782m-load.service"
 
@@ -174,9 +178,11 @@ if [ -n "$V3_BIN" ]; then
 	# Retire legacy Python voice/hub/sensor daemons (tsv-voice owns screen/sensors/UI natively)
 	sudo rm -f "$MNT/root/etc/systemd/system/multi-user.target.wants/thinksmart-client.service" \
 	           "$MNT/root/etc/systemd/system/multi-user.target.wants/screen-wake.service" \
+	           "$MNT/root/etc/systemd/system/screen-wake.service" \
 	           "$MNT/root/home/ubuntu/.config/systemd/user/default.target.wants/xiaozhi-hub.service" \
 	           "$MNT/root/home/ubuntu/.config/systemd/user/default.target.wants/idle-blanker.service" \
-	           "$MNT/root/etc/xdg/systemd/user/default.target.wants/vcnl4200-proximity-daemon.service"
+	           "$MNT/root/etc/xdg/systemd/user/default.target.wants/vcnl4200-proximity-daemon.service" \
+	           "$MNT/root/etc/xdg/systemd/user/vcnl4200-proximity-daemon.service"
 fi
 
 echo "== Unmounting & running e2fsck verification"
