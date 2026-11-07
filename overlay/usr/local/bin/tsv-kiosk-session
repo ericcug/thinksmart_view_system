@@ -1,0 +1,26 @@
+#!/bin/sh
+# Weston kiosk-shell session launcher for tsv-kiosk.service on tty1
+[ -r /etc/tsv/kiosk.conf ] && . /etc/tsv/kiosk.conf
+
+case "${ROTATION:-90}" in
+    90|180|270) TRANSFORM="rotate-$ROTATION" ;;
+    *)          TRANSFORM=normal ;;
+esac
+
+CFG="${XDG_RUNTIME_DIR:-/tmp}/tsv-weston.ini"
+cat > "$CFG" <<EOF
+[core]
+shell=kiosk-shell.so
+idle-time=0
+require-input=false
+
+[output]
+name=${OUTPUT:-DSI-1}
+transform=$TRANSFORM
+
+[autolaunch]
+path=/usr/local/bin/tsv-kiosk.py
+watch=true
+EOF
+
+exec weston --config="$CFG"

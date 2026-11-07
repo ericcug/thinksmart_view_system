@@ -1,0 +1,13 @@
+[Unit]
+Description=Generate SSH host keys on first boot
+DefaultDependencies=no
+After=local-fs.target
+Before=ssh.service sshd.service sysinit.target
+ConditionPathExistsGlob=!/etc/ssh/ssh_host_*_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=sysinit.target

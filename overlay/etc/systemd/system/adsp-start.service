@@ -1,0 +1,12 @@
+[Unit]
+Description=Start ADSP remoteproc
+After=msm-firmware-loader.service
+Requires=msm-firmware-loader.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'sleep 2; echo start > /sys/class/remoteproc/remoteproc0/state 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

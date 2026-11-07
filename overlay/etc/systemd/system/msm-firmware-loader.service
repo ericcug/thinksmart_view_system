@@ -1,0 +1,24 @@
+[Unit]
+Description=Mount Qualcomm firmware partitions and create symlinks
+DefaultDependencies=no
+Before=sysinit.target
+After=systemd-udevd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  mkdir -p /run/msm-firmware-loader/mnt/modem /run/msm-firmware-loader/mnt/dsp /run/msm-firmware-loader/mnt/persist; \
+  mount -o ro /dev/mmcblk0p1 /run/msm-firmware-loader/mnt/modem 2>/dev/null || true; \
+  mount -o ro /dev/mmcblk0p12 /run/msm-firmware-loader/mnt/dsp 2>/dev/null || true; \
+  mount -o ro /dev/mmcblk0p27 /run/msm-firmware-loader/mnt/persist 2>/dev/null || true; \
+  for dir in /run/msm-firmware-loader/mnt/modem/image /run/msm-firmware-loader/mnt/dsp; do \
+    if [ -d "$dir" ]; then \
+      for f in "$dir"/*; do \
+        [ -e "$f" ] && ln -sf "$f" /lib/firmware/ 2>/dev/null; \
+      done; \
+    fi; \
+  done'
+
+[Install]
+WantedBy=sysinit.target
