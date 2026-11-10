@@ -67,10 +67,23 @@ rm -f /etc/systemd/system/multi-user.target.wants/i2c1-pinmux-fix.service \
       /etc/systemd/system/qup-i2c-pinctrl-fix.service \
       /etc/systemd/system/pmos-audio-route.service \
       /usr/local/sbin/i2c1-pinmux-fix.sh \
-      /usr/local/sbin/qup-i2c-pinctrl-fix.sh
+      /usr/local/sbin/qup-i2c-pinctrl-fix.sh \
+      /etc/NetworkManager/conf.d/zz-thinksmart-wifi-powersave-off.conf \
+      /etc/systemd/timesyncd.conf.d/thinksmart.conf \
+      /etc/sysctl.d/99-swappiness.conf \
+      /etc/sysctl.d/99-zram.conf
+
+if [ -d /home/ubuntu ]; then
+	install -d -o 1000 -g 1000 /home/ubuntu/.config/wireplumber/main.lua.d \
+	                           /home/ubuntu/.config/wireplumber/bluetooth.lua.d
+	install -o 1000 -g 1000 -m 644 /etc/wireplumber/main.lua.d/99-tsv-alsa.lua \
+	                               /home/ubuntu/.config/wireplumber/main.lua.d/99-tsv-alsa.lua
+	install -o 1000 -g 1000 -m 644 /etc/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua \
+	                               /home/ubuntu/.config/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua
+fi
 
 systemctl daemon-reload
-systemctl enable tas5782m-load.service thinksmart-zram.service
+systemctl enable tas5782m-load.service tsv-zram.service tsv-clock-restore.service tsv-clock-save.timer || true
 
 cp /tmp/Image.gz /boot/vmlinuz
 cp /tmp/apq8053-lenovo-cd-18781y.dtb /boot/apq8053-lenovo-cd-18781y.dtb

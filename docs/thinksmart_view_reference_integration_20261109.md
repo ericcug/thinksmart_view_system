@@ -6,6 +6,7 @@ stack already solves it differently.
 
 * [guge2/thinksmart-view-assistant](https://github.com/guge2/thinksmart-view-assistant)
 * [m0s4ik/thinksmart-view-debian](https://github.com/m0s4ik/thinksmart-view-debian)
+* [justhalfbit/thinksmart-ubuntu-image](https://github.com/justhalfbit/thinksmart-ubuntu-image) (`d2e3239`, system layer `0.2.1`) & [justhalfbit/xiaozhi-thinksmart-client](https://github.com/justhalfbit/xiaozhi-thinksmart-client) (`e7ec0de`, client `0.1.6`)
 
 ## Integrated
 
@@ -15,7 +16,11 @@ stack already solves it differently.
 | QDSP6 hardware pointer | The DSP reports one period past the one it finished; the old `period_size - 1` value walked past `buffer_size` and made PipeWire's clock estimate jump on every lap | `kernel/patches/0908`: `hw_ptr % runtime->periods`, matching mainline |
 | Battery-less poweroff | PM8953 `PON_TRIGGER_EN` (`0x880`) keeps `CBLPWR_N`/`PON1` asserted, so `poweroff` restarts the board after ~25 s when the DC supply stays plugged in | `kernel/patches/0909`: `qcom,pon-reset-off` clears both triggers in `drivers/power/reset/qcom-pon.c`, enabled in the CD-18781Y DTS |
 | WirePlumber node properties | `api.alsa.disable-mmap` is a PCM-node property; setting it on the card does nothing. Q6ASM reports whole-period positions, so the quantum and headroom must be explicit and playback/capture should share `clock.name` | `overlay/etc/wireplumber/main.lua.d/99-tsv-alsa.lua`: node-level mmap/batch/period/headroom/quantum/clock properties |
-| Battery-less RTC | The PM8953 RTC counter survives reboot and poweroff but resets to 1970 when the supply is removed; NTP has not run yet at early boot | `overlay/usr/local/bin/tsv-clock` plus `tsv-clock-restore.service`, `tsv-clock-save.service` and `tsv-clock-save.timer` |
+| WirePlumber Bluetooth speaker isolation | Paired phones route hands-free calls (`HFP`/`HSP`) to the speaker/mic unless `hfphsp-backend = "none"`; idle suspension of `bluez_input.*` releases the transport while the phone still shows "playing" with no sound; `bluez_input.*` must never become the default capture source | `overlay/etc/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua`: `bluez5.hfphsp-backend = "none"`, `session.suspend-timeout-seconds = 0`, `priority.session = 0`, `priority.driver = 0` |
+| Phone A2DP channel auto-open (`ensure_audio`) | Phones (especially iPhones right after pairing) often connect control channels without opening A2DP `MediaTransport1`, playing on their own speaker or silently | `tsv/src/hardware/bluetooth.rs`: automatically trusts newly paired devices and calls `org.bluez.Device1.ConnectProfile("0000110a-0000-1000-8000-00805f9b34fb")` when a connected phone has no active transport |
+| QCA9379 Wi-Fi power-save DHCP drop | `ath10k_sdio` drops DHCP replies on ~40% of boots when Ubuntu's default Wi-Fi power save (`3`) is active, delaying IPv4 by 1–3 minutes | `overlay/etc/NetworkManager/conf.d/zz-tsv-wifi-powersave-off.conf`: `wifi.powersave = 2` |
+| ZRAM sysctl & coredump suppression | With `tsv-zram.service`, `vm.swappiness=100` and `vm.page-cluster=0` avoid page-cache eviction and swap read-ahead overhead; disabling core dumps prevents eMMC wear | `overlay/etc/sysctl.d/99-tsv-zram.conf` & `overlay/etc/systemd/coredump.conf.d/90-tsv-coredump.conf` |
+| Battery-less RTC & fast NTP | The PM8953 RTC counter survives reboot and poweroff but resets to 1970 when the supply is removed; NTP has not run yet at early boot | `overlay/usr/local/bin/tsv-clock` + `tsv-clock-*.service`/`.timer` & `overlay/etc/systemd/timesyncd.conf.d/tsv-ntp.conf` |
 | Adreno 506 GMEM hang | freedreno `layout_gmem()` can spin forever on WebKit render targets that cannot fit in the 136 KiB GMEM | `FD_MESA_DEBUG=sysmem` in `tsv-kiosk.service` only (not system-wide) |
 
 ## Already present in the 7.3 tree

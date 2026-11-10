@@ -2,6 +2,7 @@ bluez_monitor.enabled = true
 
 bluez_monitor.properties["with-logind"] = false
 bluez_monitor.properties["bluez5.roles"] = "[ a2dp_sink a2dp_source ]"
+bluez_monitor.properties["bluez5.hfphsp-backend"] = "none"
 bluez_monitor.properties["bluez5.default.rate"] = 48000
 bluez_monitor.properties["bluez5.default.channels"] = 2
 bluez_monitor.properties["bluez5.dummy-avrcp-player"] = true
@@ -28,5 +29,11 @@ table.insert(bluez_monitor.rules, {
   },
   apply_properties = {
     ["bluez5.media-source-role"] = "playback",
+    -- Never suspend for being idle: releasing the transport leaves the phone
+    -- showing "playing" without sending audio until paused and resumed.
+    ["session.suspend-timeout-seconds"] = 0,
+    -- Never allow a phone's A2DP stream to become the default capture source.
+    ["priority.session"] = 0,
+    ["priority.driver"] = 0,
   },
 })

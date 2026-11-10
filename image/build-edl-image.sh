@@ -78,7 +78,8 @@ B="$WORK/boot"
 R="$WORK/root"
 sudo rm -rf "$R/opt/tas5782m-test" "$R/etc/systemd/timesyncd.conf.d/thinksmart.conf" \
             "$R/etc/systemd/journald.conf.d/thinksmart.conf" \
-            "$R/etc/NetworkManager/conf.d/zz-thinksmart-wifi-powersave-off.conf"
+            "$R/etc/NetworkManager/conf.d/zz-thinksmart-wifi-powersave-off.conf" \
+            "$R/etc/sysctl.d/99-swappiness.conf" "$R/etc/sysctl.d/99-zram.conf"
 
 echo "== 2. Installing Mainline Linux $VER kernel, DTB & modules (0 legacy kernels)"
 sudo install -o 0 -g 0 -m 644 "$KBUILD/arch/arm64/boot/Image.gz" "$B/vmlinuz"
@@ -101,35 +102,60 @@ sudo install -o 0 -g 0 -m 644 "$TAS_FW" "$R/lib/firmware/tas5728m_dsp_lenovo_cd-
 
 echo "== 4. Applying clean TSV hardware & kiosk overlay"
 sudo install -d -o 0 -g 0 \
+	"$R/etc/NetworkManager/conf.d" \
+	"$R/etc/bluetooth" \
 	"$R/etc/modules-load.d" \
 	"$R/etc/pam.d" \
+	"$R/etc/sysctl.d" \
+	"$R/etc/systemd/coredump.conf.d" \
 	"$R/etc/systemd/system" \
+	"$R/etc/systemd/system/bluetooth.service.d" \
 	"$R/etc/systemd/system/graphical.target.wants" \
 	"$R/etc/systemd/system/multi-user.target.wants" \
 	"$R/etc/systemd/system/swap.target.wants" \
 	"$R/etc/systemd/system/sysinit.target.wants" \
 	"$R/etc/systemd/system/timers.target.wants" \
 	"$R/etc/systemd/system.conf.d" \
+	"$R/etc/systemd/timesyncd.conf.d" \
 	"$R/etc/tsv" \
 	"$R/etc/udev/rules.d" \
+	"$R/etc/wireplumber/bluetooth.lua.d" \
 	"$R/etc/wireplumber/main.lua.d" \
 	"$R/usr/local/bin" \
 	"$R/usr/share/alsa/ucm2/Lenovo/cd-18781y" \
 	"$R/usr/share/alsa/ucm2/conf.d/cd-18781y"
-sudo install -d -o 1000 -g 1000 "$R/home/ubuntu/.config/wireplumber/main.lua.d"
+sudo install -d -o 1000 -g 1000 \
+	"$R/home/ubuntu/.config/wireplumber/bluetooth.lua.d" \
+	"$R/home/ubuntu/.config/wireplumber/main.lua.d"
 
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/NetworkManager/conf.d/zz-tsv-wifi-powersave-off.conf" \
+             "$R/etc/NetworkManager/conf.d/zz-tsv-wifi-powersave-off.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/bluetooth/main.conf" \
+             "$R/etc/bluetooth/main.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/modules-load.d/audio-cd18781y.conf" \
              "$R/etc/modules-load.d/audio-cd18781y.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/pam.d/tsv-kiosk" \
              "$R/etc/pam.d/tsv-kiosk"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/sysctl.d/99-tsv-zram.conf" \
+             "$R/etc/sysctl.d/99-tsv-zram.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/coredump.conf.d/90-tsv-coredump.conf" \
+             "$R/etc/systemd/coredump.conf.d/90-tsv-coredump.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/bluetooth.service.d/override.conf" \
+             "$R/etc/systemd/system/bluetooth.service.d/override.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/tsv/kiosk.conf" \
              "$R/etc/tsv/kiosk.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system.conf.d/10-watchdog.conf" \
              "$R/etc/systemd/system.conf.d/10-watchdog.conf"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/timesyncd.conf.d/tsv-ntp.conf" \
+             "$R/etc/systemd/timesyncd.conf.d/tsv-ntp.conf"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/udev/rules.d/70-tsv-vcnl4200.rules" \
              "$R/etc/udev/rules.d/70-tsv-vcnl4200.rules"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/udev/rules.d/99-tsv-touchscreen.rules" \
              "$R/etc/udev/rules.d/99-tsv-touchscreen.rules"
+sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua" \
+             "$R/etc/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua"
+sudo install -o 1000 -g 1000 -m 644 "$ROOT/overlay/etc/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua" \
+             "$R/home/ubuntu/.config/wireplumber/bluetooth.lua.d/51-tsv-bluetooth.lua"
 sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/wireplumber/main.lua.d/99-tsv-alsa.lua" \
              "$R/etc/wireplumber/main.lua.d/99-tsv-alsa.lua"
 sudo install -o 1000 -g 1000 -m 644 "$ROOT/overlay/etc/wireplumber/main.lua.d/99-tsv-alsa.lua" \
