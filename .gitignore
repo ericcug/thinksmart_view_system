@@ -11,7 +11,7 @@ edl-src/
 edl-venv/
 
 # Standalone V2/V3 Rust application sub-repository (tracked in its own git repo)
-tsv/
+/tsv/
 
 # Kernel source trees, build outputs, and staged modules
 kernel/linux-7.3/

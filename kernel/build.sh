@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build mainline Linux 7.3 (7.3.0-tsv) for Lenovo ThinkSmart View CD-18781Y
 #   Base: msm8953-mainline barni2000/7.3/develop @ 755ffc44d5d8442adeec8bbaa02108478089c4d7
-#   Patches: kernel/patches/0001..0907 (41 patches total)
+#   Patches: kernel/patches/0001..0909 (43 patches total)
 set -euo pipefail
 
 export PATH=/usr/lib/llvm-19/bin:$PATH

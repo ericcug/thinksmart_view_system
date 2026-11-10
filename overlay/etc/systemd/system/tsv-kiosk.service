@@ -17,6 +17,11 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_SESSION_DESKTOP=TSVKiosk XDG_CURRENT_DESKTOP=TSVKiosk
+# Adreno 506 / freedreno: layout_gmem() can spin forever when a WebKit render
+# target does not fit in the 136 KiB GMEM. Render straight to memory in the
+# browser only; do not set this system-wide (it would disable tiling for every
+# other GL program).
+Environment=FD_MESA_DEBUG=sysmem
 ExecStart=/usr/local/bin/tsv-kiosk-session
 Restart=always
 RestartSec=2

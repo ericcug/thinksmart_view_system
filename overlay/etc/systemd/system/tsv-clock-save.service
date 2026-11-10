@@ -1,0 +1,9 @@
+[Unit]
+Description=Save the network-synchronized ThinkSmart RTC anchor
+After=systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+StateDirectory=tsv-clock
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/tsv-clock save

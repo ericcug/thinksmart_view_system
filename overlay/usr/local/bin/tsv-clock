@@ -1,0 +1,114 @@
+#!/usr/bin/python3
+# Save and restore a wall-clock anchor for the ThinkSmart View's battery-less
+# PM8953 RTC. The RTC keeps counting while the PMIC is powered (including
+# across reboot and poweroff) but starts from 1970 after the supply is removed,
+# so the RTC counter alone is not a wall clock. Once the system time has been
+# set by NTP, record the pair (rtc seconds, realtime seconds); at the next boot
+# the same pair lets us estimate the current wall time before the network is up.
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+
+ANCHOR = "/var/lib/tsv-clock/anchor.json"
+RTC = "/sys/class/rtc/rtc0/since_epoch"
+MIN_REALTIME = 1735689600  # 2025-01-01 UTC
+MAX_REALTIME = 4102444800  # 2100-01-01 UTC
+MAX_ELAPSED = 366 * 86400
+
+
+def rtc_seconds():
+    with open(RTC, encoding="ascii") as source:
+        return int(source.read().strip())
+
+
+def synchronized():
+    try:
+        result = subprocess.run(
+            ["/usr/bin/timedatectl", "show", "--property=NTPSynchronized", "--value"],
+            text=True, capture_output=True, timeout=3, check=True,
+        )
+        return result.stdout.strip() == "yes"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def save():
+    if not synchronized():
+        logging.info("network time is not synchronized; keeping the previous anchor")
+        return
+    # Read both clocks as close together as possible to limit the offset error
+    # to about one second.
+    rtc = rtc_seconds()
+    realtime = int(time.time())
+    if not MIN_REALTIME <= realtime < MAX_REALTIME:
+        raise ValueError("synchronized system time is outside the supported range")
+    try:
+        with open(ANCHOR, encoding="ascii") as source:
+            previous = json.load(source)
+        old_rtc, old_realtime = previous["rtc"], previous["realtime"]
+        if (type(old_rtc) is int and type(old_realtime) is int
+                and 0 <= rtc - old_rtc < 7 * 86400
+                and abs((realtime - rtc) - (old_realtime - old_rtc)) <= 2):
+            return
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    anchor = {"rtc": rtc, "realtime": realtime}
+    temporary = ANCHOR + ".tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="ascii") as target:
+        json.dump(anchor, target)
+        target.flush()
+        os.fsync(target.fileno())
+    os.replace(temporary, ANCHOR)
+    directory = os.open(os.path.dirname(ANCHOR), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    logging.info("saved a network-synchronized RTC anchor")
+
+
+def restore():
+    # This runtime marker avoids waiting for D-Bus during early boot.
+    if os.path.exists("/run/systemd/timesync/synchronized"):
+        logging.info("network time is already synchronized")
+        return
+    try:
+        with open(ANCHOR, encoding="ascii") as source:
+            anchor = json.load(source)
+        old_rtc = anchor["rtc"]
+        old_realtime = anchor["realtime"]
+        if type(old_rtc) is not int or type(old_realtime) is not int:
+            raise ValueError("invalid clock anchor")
+        current_rtc = rtc_seconds()
+        elapsed = current_rtc - old_rtc
+        candidate = old_realtime + elapsed
+        if not (0 <= elapsed <= MAX_ELAPSED
+                and MIN_REALTIME <= old_realtime < MAX_REALTIME
+                and candidate < MAX_REALTIME):
+            raise ValueError("RTC was reset or clock anchor is out of range")
+        now = time.time()
+        if candidate > now:
+            time.clock_settime(time.CLOCK_REALTIME, candidate)
+            logging.info("restored system time from the calibrated RTC counter")
+        else:
+            logging.info("existing system time is at least as recent as the RTC estimate")
+    except FileNotFoundError:
+        logging.info("no RTC anchor; leaving system time unchanged")
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    try:
+        if len(sys.argv) != 2 or sys.argv[1] not in ("save", "restore"):
+            raise ValueError("expected save or restore")
+        (save if sys.argv[1] == "save" else restore)()
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+        logging.warning("clock anchor unavailable: %s", error)
+
+
+if __name__ == "__main__":
+    main()

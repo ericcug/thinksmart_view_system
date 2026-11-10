@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TSV Integration <tsv@localhost>
+Date: Mon, 9 Nov 2026 00:00:00 +0800
+Subject: [PATCH] ASoC qcom qdsp6 reset playback queue and dsp period state
+
+---
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c
+@@ -222,6 +222,14 @@
+ 	}
+ 
+ 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
++	/*
++	 * snd_pcm_prepare() resets the application pointer to zero after this
++	 * callback returns, so the playback queue pointer must start a new lap
++	 * too. Otherwise a stream stopped and prepared again keeps queue_ptr
++	 * ahead of appl_ptr, avail_periods in q6asm_dai_ack() goes negative and
++	 * no further period is ever sent to the DSP (playback stays silent).
++	 */
++	prtd->queue_ptr = 0;
+ 	/* rate and channels are sent to audio driver */
+ 	if (prtd->state == Q6ASM_STREAM_RUNNING) {
+ 		/* clear the previous setup if any; always release routing and
+@@ -480,11 +488,16 @@
+ 	struct q6asm_dai_rtd *prtd = runtime->private_data;
+ 	snd_pcm_uframes_t ptr;
+ 
+-	ptr = q6asm_get_hw_pointer(prtd->audio_client, substream->stream) * runtime->period_size;
+-	if (ptr)
+-		return ptr - 1;
++	/*
++	 * A full lap of the period buffers is the start of the ring again.
++	 * The DSP reports one past the period it has just finished, so without
++	 * the modulo the returned frame would exceed buffer_size and PipeWire's
++	 * clock estimate would jump at every lap.
++	 */
++	ptr = q6asm_get_hw_pointer(prtd->audio_client, substream->stream) %
++	      runtime->periods;
+ 
+-	return 0;
++	return ptr * runtime->period_size;
+ }
+ 
+ static int q6asm_dai_hw_params(struct snd_soc_component *component,
+--- a/sound/soc/qcom/qdsp6/q6asm.c
++++ b/sound/soc/qcom/qdsp6/q6asm.c
+@@ -375,6 +375,8 @@
+ 
+ 	spin_lock_irqsave(&ac->lock, flags);
+ 	port->num_periods = 0;
++	/* Start the next prepare/stream at period 0, matching queue_ptr. */
++	port->dsp_buf = 0;
+ 	spin_unlock_irqrestore(&ac->lock, flags);
+ 	kfree(port->buf);
+ 	port->buf = NULL;
+-- 
+2.47.3

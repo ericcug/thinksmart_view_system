@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically calibrate the ThinkSmart RTC counter
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+Unit=tsv-clock-save.service
+
+[Install]
+WantedBy=timers.target

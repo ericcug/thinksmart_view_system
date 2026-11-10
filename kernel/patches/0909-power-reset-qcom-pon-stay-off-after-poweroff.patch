@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TSV Integration <tsv@localhost>
+Date: Mon, 9 Nov 2026 00:00:00 +0800
+Subject: [PATCH] power reset qcom pon stay off after poweroff
+
+---
+--- a/drivers/power/reset/qcom-pon.c
++++ b/drivers/power/reset/qcom-pon.c
+@@ -14,6 +14,10 @@
+ 
+ #define PON_SOFT_RB_SPARE		0x8f
+ 
++#define PON_TRIGGER_EN			0x80
++#define PON_TRIGGER_CBLPWR_N		BIT(6)
++#define PON_TRIGGER_PON1		BIT(5)
++
+ #define GEN1_REASON_SHIFT		2
+ #define GEN2_REASON_SHIFT		1
+ 
+@@ -67,6 +71,24 @@
+ 	if (error)
+ 		return error;
+ 
++	/*
++	 * Boards without a battery and without a power key (Lenovo ThinkSmart
++	 * View) keep the charger supply asserted as a power-on event, so a
++	 * regular poweroff powers them straight back on. Clear the cable-power
++	 * and charger triggers so poweroff stays off until the supply has been
++	 * removed and re-applied (which resets the PMIC to its defaults).
++	 */
++	if (of_property_read_bool(pdev->dev.of_node, "qcom,pon-reset-off")) {
++		error = regmap_update_bits(pon->regmap,
++					   pon->baseaddr + PON_TRIGGER_EN,
++					   PON_TRIGGER_CBLPWR_N | PON_TRIGGER_PON1,
++					   0);
++		if (error)
++			dev_warn(&pdev->dev,
++				 "failed to clear the cable power-on triggers: %d\n",
++				 error);
++	}
++
+ 	reason_shift = (long)of_device_get_match_data(&pdev->dev);
+ 
+ 	if (reason_shift != NO_REASON_SHIFT) {
+--- a/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
++++ b/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+@@ -525,6 +525,13 @@
+ };
+ 
+ &pm8953_pon {
++	/*
++	 * No battery and no power key: the always-present supply counts as a
++	 * power-on event, so clear the cable-power/charger triggers to make
++	 * poweroff stay off until the supply is removed.
++	 */
++	qcom,pon-reset-off;
++
+ 	/* Device doesn't have a power key */
+ 	pwrkey {
+ 		status = "disabled";
+--- a/Documentation/devicetree/bindings/power/reset/qcom,pon.yaml
++++ b/Documentation/devicetree/bindings/power/reset/qcom,pon.yaml
+@@ -42,6 +42,15 @@
+     minItems: 1
+     maxItems: 2
+ 
++  qcom,pon-reset-off:
++    type: boolean
++    description: |
++      Clear the cable-power (CBLPWR_N) and charger (PON1) power-on triggers at
++      probe. On boards without a battery and without a power key the supply is
++      always asserted as a power-on event, so a regular poweroff would power
++      the board straight back on. Clearing these triggers keeps it off until
++      the supply is removed and re-applied, which resets the PMIC to its
++      default triggers.
+ 
+   pwrkey:
+     type: object
+-- 
+2.47.3

@@ -108,6 +108,7 @@ sudo install -d -o 0 -g 0 \
 	"$R/etc/systemd/system/multi-user.target.wants" \
 	"$R/etc/systemd/system/swap.target.wants" \
 	"$R/etc/systemd/system/sysinit.target.wants" \
+	"$R/etc/systemd/system/timers.target.wants" \
 	"$R/etc/systemd/system.conf.d" \
 	"$R/etc/tsv" \
 	"$R/etc/udev/rules.d" \
@@ -142,9 +143,12 @@ sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/tsv-kiosk-session" \
              "$R/usr/local/bin/tsv-kiosk-session"
 sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/tsv-kiosk.py" \
              "$R/usr/local/bin/tsv-kiosk.py"
+sudo install -o 0 -g 0 -m 755 "$ROOT/overlay/usr/local/bin/tsv-clock" \
+             "$R/usr/local/bin/tsv-clock"
 
 for unit in msm-firmware-loader.service adsp-start.service tas5782m-load.service \
-            tsv-zram.service tsv-growroot.service tsv-ssh-hostkeys.service tsv-kiosk.service; do
+            tsv-zram.service tsv-growroot.service tsv-ssh-hostkeys.service tsv-kiosk.service \
+            tsv-clock-restore.service tsv-clock-save.service tsv-clock-save.timer; do
 	sudo install -o 0 -g 0 -m 644 "$ROOT/overlay/etc/systemd/system/$unit" \
 	             "$R/etc/systemd/system/$unit"
 done
@@ -163,12 +167,19 @@ sudo ln -sfn /etc/systemd/system/tsv-zram.service \
              "$R/etc/systemd/system/swap.target.wants/tsv-zram.service"
 sudo ln -sfn /etc/systemd/system/tsv-kiosk.service \
              "$R/etc/systemd/system/graphical.target.wants/tsv-kiosk.service"
+sudo ln -sfn /etc/systemd/system/tsv-clock-restore.service \
+             "$R/etc/systemd/system/sysinit.target.wants/tsv-clock-restore.service"
+sudo ln -sfn /etc/systemd/system/tsv-clock-save.timer \
+             "$R/etc/systemd/system/timers.target.wants/tsv-clock-save.timer"
 
 if [ -n "$V3_BIN" ]; then
 	echo "== 5. Installing standalone V3 tsv-voice ($V3_BIN) & ONNX/C runtime assets"
 	[ -f "$TSV_ASSETS" ] || { echo "Missing $TSV_ASSETS" >&2; exit 1; }
 	zstd -dc "$TSV_ASSETS" | sudo tar -x --numeric-owner -p -C "$R"
 	sudo install -o 0 -g 0 -m 755 "$V3_BIN" "$R/usr/local/bin/tsv-voice"
+	if [ -f "$ROOT/tsv/deploy/edge-tts" ]; then
+		sudo install -o 0 -g 0 -m 755 "$ROOT/tsv/deploy/edge-tts" "$R/usr/local/bin/edge-tts"
+	fi
 	sudo install -d -o 1000 -g 1000 "$R/var/cache/tsv/tts" "$R/var/lib/tsv"
 	if [ -f "$ROOT/tsv/deploy/config.example.yaml" ]; then
 		sudo install -o 1000 -g 1000 -m 644 "$ROOT/tsv/deploy/config.example.yaml" \

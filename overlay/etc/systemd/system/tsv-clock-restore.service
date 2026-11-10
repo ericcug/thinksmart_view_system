@@ -1,0 +1,17 @@
+[Unit]
+Description=Restore the ThinkSmart clock from the calibrated RTC counter
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service systemd-timesyncd.service
+Before=time-set.target sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+StateDirectory=tsv-clock
+StateDirectoryMode=0700
+# rtc-pm8xxx is a module; make sure rtc0 exists before reading since_epoch.
+ExecStartPre=-/sbin/modprobe rtc-pm8xxx
+ExecStart=/usr/local/bin/tsv-clock restore
+
+[Install]
+WantedBy=sysinit.target
