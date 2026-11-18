@@ -19,6 +19,9 @@ table.insert(alsa_monitor.rules, {
 
 -- Speaker (MultiMedia1 -> QUAT_MI2S_RX -> TAS5782M): fixed S16LE 48kHz stereo.
 --
+-- Note: Under UCM2 (`api.alsa.use-ucm = true`), PipeWire names the nodes
+-- `alsa_output.platform-c051000.sound-card.HiFi__Speaker__sink` and
+-- `alsa_input.platform-c051000.sound-card.HiFi__Microphone__source`.
 -- Q6ASM reports the hardware position in whole periods only. Keep the
 -- PipeWire quantum equal to one ALSA period, reserve explicit pointer-jitter
 -- headroom, and disable batching so stream joins/leaves do not change the
@@ -27,6 +30,7 @@ table.insert(alsa_monitor.rules, {
 table.insert(alsa_monitor.rules, {
   matches = {
     { { "node.name", "matches", "alsa_output.platform-c051000.sound-card.*" } },
+    { { "node.name", "equals", "alsa_output.platform-c051000.sound-card.HiFi__Speaker__sink" } },
   },
   apply_properties = {
     ["node.pause-on-idle"] = false,
@@ -41,6 +45,7 @@ table.insert(alsa_monitor.rules, {
     ["node.force-quantum"] = 960,
     ["clock.name"] = "api.alsa.cd18781y",
     ["priority.driver"] = 2000,
+    ["priority.session"] = 2000,
   },
 })
 
@@ -49,6 +54,7 @@ table.insert(alsa_monitor.rules, {
 table.insert(alsa_monitor.rules, {
   matches = {
     { { "node.name", "matches", "alsa_input.platform-c051000.sound-card.*" } },
+    { { "node.name", "equals", "alsa_input.platform-c051000.sound-card.HiFi__Microphone__source" } },
   },
   apply_properties = {
     ["node.pause-on-idle"] = false,
@@ -57,9 +63,13 @@ table.insert(alsa_monitor.rules, {
     ["audio.rate"] = 48000,
     ["audio.channels"] = 2,
     ["api.alsa.disable-mmap"] = true,
+    ["api.alsa.disable-batch"] = true,
     ["api.alsa.period-size"] = 960,
     ["api.alsa.headroom"] = 768,
+    ["node.force-quantum"] = 960,
     ["clock.name"] = "api.alsa.cd18781y",
+    ["priority.driver"] = 2000,
+    ["priority.session"] = 2000,
   },
 })
 

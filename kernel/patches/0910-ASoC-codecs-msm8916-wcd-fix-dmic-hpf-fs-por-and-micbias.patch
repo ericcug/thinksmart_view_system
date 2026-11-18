@@ -1,0 +1,257 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Eric <eric@localhost>
+Date: Thu, 19 Nov 2026 01:00:00 +0800
+Subject: [PATCH] ASoC: codecs: msm8916-wcd: fix DMIC HPF, FS rate, POR defaults, and MICBIAS1 pull-up
+
+1. msm8916-wcd-digital:
+   - Fix inverted `TX1/TX2 HPF Switch` (`BIT(3)` is `HPF_BP_SEL`: 1=bypass, 0=enabled).
+   - Stop overwriting user-selected `TXn HPF Cutoff` with 150Hz on every `DECn MUX` PMU;
+     default TX1/TX2 HPF cutoff to 75Hz (`0x1`) at probe so 85-150Hz voice fundamentals
+     are preserved while sub-75Hz rumble is rejected.
+   - Program `LPASS_CDC_TX1_CLK_FS_CTL` and `LPASS_CDC_TX2_CLK_FS_CTL` in `hw_params`
+     and provide `reg_defaults` for `REGCACHE_FLAT` so `TXn_VOL_CTL_CFG` DSM dither (`0x08`)
+     and `TXn_CLK_FS_CTL` (`0x03` = 48kHz) are never clobbered by zero-cache `update_bits`
+     (eliminates the -48.7 dBFS 19.2kHz digital idle tone and warning).
+   - Sync `CICn MUX` (`BIT(0)`) with `DECn MUX` selection on `PRE_PMU`.
+2. msm8916-wcd-analog:
+   - Set `CDC_A_TX_1_2_ATEST_CTL_2 = 0x02` on `MIC BIAS Internal1` `PRE_PMU` and
+     `TX1_INT_PULLUP_EN` (`BIT(6)`) on `POST_PMU`, matching downstream `msm8x16-wcd.c`
+     for Cajon (`codec_version == 4`).
+   - Do not enable MBHC floating headset detection (`0xf147`/`0xf150`/`0xf151`) or request
+     `mbhc_switch_int` when neither `jack-gpios` nor `qcom,mbhc-vthreshold-*` is present in DT.
+3. apq8053-lenovo-cd-18781y.dts:
+   - Remove unused `voicemmode1-dai-link`.
+---
+diff --git aa/sound/soc/codecs/msm8916-wcd-digital.c bb/sound/soc/codecs/msm8916-wcd-digital.c
+index 969902a..91fdbef 100644
+--- aa/sound/soc/codecs/msm8916-wcd-digital.c
++++ bb/sound/soc/codecs/msm8916-wcd-digital.c
+@@ -521,8 +521,8 @@ static const struct snd_kcontrol_new msm8916_wcd_digital_snd_controls[] = {
+ 			-84, 40, digital_gain),
+ 	SOC_ENUM("TX1 HPF Cutoff", tx1_hpf_cutoff_enum),
+ 	SOC_ENUM("TX2 HPF Cutoff", tx2_hpf_cutoff_enum),
+-	SOC_SINGLE("TX1 HPF Switch", LPASS_CDC_TX1_MUX_CTL, 3, 1, 0),
+-	SOC_SINGLE("TX2 HPF Switch", LPASS_CDC_TX2_MUX_CTL, 3, 1, 0),
++	SOC_SINGLE("TX1 HPF Switch", LPASS_CDC_TX1_MUX_CTL, 3, 1, 1),
++	SOC_SINGLE("TX2 HPF Switch", LPASS_CDC_TX2_MUX_CTL, 3, 1, 1),
+ 	SOC_ENUM("RX1 DCB Cutoff", rx1_dcb_cutoff_enum),
+ 	SOC_ENUM("RX2 DCB Cutoff", rx2_dcb_cutoff_enum),
+ 	SOC_ENUM("RX3 DCB Cutoff", rx3_dcb_cutoff_enum),
+@@ -629,7 +629,7 @@ static int msm8916_wcd_digital_enable_dec(struct snd_soc_dapm_widget *w,
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+ 	unsigned int decimator = w->shift + 1;
+ 	u16 dec_reset_reg, tx_vol_ctl_reg, tx_mux_ctl_reg, tx_dmic_ctl_reg;
+-	u8 dec_hpf_cut_of_freq;
++	unsigned int dec_sel;
+ 
+ 	dec_reset_reg = LPASS_CDC_CLK_TX_RESET_B1_CTL;
+ 	tx_vol_ctl_reg = LPASS_CDC_TX1_VOL_CTL_CFG + 32 * (decimator - 1);
+@@ -638,19 +638,18 @@ static int msm8916_wcd_digital_enable_dec(struct snd_soc_dapm_widget *w,
+ 
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
++		/* Synchronize CICn MUX (bit 0: 0=AMIC, 1=DMIC) with DECn MUX */
++		dec_sel = (snd_soc_component_read(component, LPASS_CDC_CONN_TX_B1_CTL) >>
++			   (w->shift * 3)) & 0x7;
++		if (dec_sel == 4 || dec_sel == 5)
++			snd_soc_component_update_bits(component, tx_mux_ctl_reg, BIT(0), BIT(0));
++		else if (dec_sel >= 1 && dec_sel <= 3)
++			snd_soc_component_update_bits(component, tx_mux_ctl_reg, BIT(0), 0);
++
+ 		/* Enable TX digital mute */
+ 		snd_soc_component_update_bits(component, tx_vol_ctl_reg,
+ 				    TX_VOL_CTL_CFG_MUTE_EN_MASK,
+ 				    TX_VOL_CTL_CFG_MUTE_EN_ENABLE);
+-		dec_hpf_cut_of_freq = snd_soc_component_read(component, tx_mux_ctl_reg) &
+-					TX_MUX_CTL_CUT_OFF_FREQ_MASK;
+-		dec_hpf_cut_of_freq >>= TX_MUX_CTL_CUT_OFF_FREQ_SHIFT;
+-		if (dec_hpf_cut_of_freq != TX_MUX_CTL_CF_NEG_3DB_150HZ) {
+-			/* set cut of freq to CF_MIN_3DB_150HZ (0x1) */
+-			snd_soc_component_update_bits(component, tx_mux_ctl_reg,
+-					    TX_MUX_CTL_CUT_OFF_FREQ_MASK,
+-					    TX_MUX_CTL_CF_NEG_3DB_150HZ);
+-		}
+ 		/*
+ 		 * The DMIC clock select in TXn_DMIC_CTL belongs to the
+ 		 * decimator and must match the DMIC clock generator, whichever
+@@ -856,6 +855,16 @@ static int msm8916_wcd_digital_component_probe(struct snd_soc_component *compone
+ 
+ 	snd_soc_component_set_drvdata(component, priv);
+ 
++	/* Default TX HPF cutoff to 75Hz (rejects sub-75Hz rumble while
++	 * preserving 85-150Hz voice fundamentals) rather than 150Hz.
++	 */
++	snd_soc_component_update_bits(component, LPASS_CDC_TX1_MUX_CTL,
++				      TX_MUX_CTL_CUT_OFF_FREQ_MASK,
++				      TX_MUX_CTL_CF_NEG_3DB_75HZ);
++	snd_soc_component_update_bits(component, LPASS_CDC_TX2_MUX_CTL,
++				      TX_MUX_CTL_CUT_OFF_FREQ_MASK,
++				      TX_MUX_CTL_CF_NEG_3DB_75HZ);
++
+ 	return 0;
+ }
+ 
+@@ -902,6 +911,10 @@ static int msm8916_wcd_digital_hw_params(struct snd_pcm_substream *substream,
+ 	case SNDRV_PCM_STREAM_CAPTURE:
+ 		snd_soc_component_update_bits(dai->component, LPASS_CDC_CLK_TX_I2S_CTL,
+ 				    TX_I2S_CTL_TX_I2S_FS_RATE_MASK, tx_fs_rate);
++		snd_soc_component_update_bits(dai->component, LPASS_CDC_TX1_CLK_FS_CTL,
++				    TX_I2S_CTL_TX_I2S_FS_RATE_MASK, tx_fs_rate);
++		snd_soc_component_update_bits(dai->component, LPASS_CDC_TX2_CLK_FS_CTL,
++				    TX_I2S_CTL_TX_I2S_FS_RATE_MASK, tx_fs_rate);
+ 		break;
+ 	case SNDRV_PCM_STREAM_PLAYBACK:
+ 		snd_soc_component_update_bits(dai->component, LPASS_CDC_CLK_RX_I2S_CTL,
+@@ -1166,11 +1179,30 @@ static const struct snd_soc_component_driver msm8916_wcd_digital = {
+ 	.endianness		= 1,
+ };
+ 
++static const struct reg_default msm8916_wcd_digital_reg_defaults[] = {
++	{ LPASS_CDC_CLK_RX_I2S_CTL, 0x13 },
++	{ LPASS_CDC_CLK_TX_I2S_CTL, 0x13 },
++	{ LPASS_CDC_CLK_OTHR_CTL, 0x04 },
++	{ LPASS_CDC_RX1_B5_CTL, 0x68 },
++	{ LPASS_CDC_RX2_B5_CTL, 0x68 },
++	{ LPASS_CDC_RX3_B5_CTL, 0x68 },
++	{ LPASS_CDC_IIR1_CTL, 0x40 },
++	{ LPASS_CDC_IIR1_COEF_B1_CTL, 0x63 },
++	{ LPASS_CDC_IIR2_CTL, 0x40 },
++	{ LPASS_CDC_IIR2_COEF_B1_CTL, 0x63 },
++	{ LPASS_CDC_TX1_VOL_CTL_CFG, 0x08 },
++	{ LPASS_CDC_TX1_CLK_FS_CTL, 0x03 },
++	{ LPASS_CDC_TX2_VOL_CTL_CFG, 0x08 },
++	{ LPASS_CDC_TX2_CLK_FS_CTL, 0x03 },
++};
++
+ static const struct regmap_config msm8916_codec_regmap_config = {
+ 	.reg_bits = 32,
+ 	.reg_stride = 4,
+ 	.val_bits = 32,
+ 	.max_register = LPASS_CDC_TX2_DMIC_CTL,
++	.reg_defaults = msm8916_wcd_digital_reg_defaults,
++	.num_reg_defaults = ARRAY_SIZE(msm8916_wcd_digital_reg_defaults),
+ 	.cache_type = REGCACHE_FLAT,
+ };
+ 
+diff --git aa/sound/soc/codecs/msm8916-wcd-analog.c bb/sound/soc/codecs/msm8916-wcd-analog.c
+index 92ab2bd..7f3a8b5 100644
+--- aa/sound/soc/codecs/msm8916-wcd-analog.c
++++ bb/sound/soc/codecs/msm8916-wcd-analog.c
+@@ -417,6 +417,24 @@ static int pm8916_wcd_analog_enable_micbias_int(struct snd_soc_dapm_widget *w,
+ 		snd_soc_component_update_bits(component, CDC_A_MICB_1_EN,
+ 				    MICB_1_EN_OPA_STG2_TAIL_CURR_MASK,
+ 				    MICB_1_EN_OPA_STG2_TAIL_CURR_1_60UA);
++		if (w->shift == 7) {
++			snd_soc_component_update_bits(component,
++					    CDC_A_TX_1_2_ATEST_CTL_2,
++					    BIT(1), BIT(1));
++		}
++		break;
++	case SND_SOC_DAPM_POST_PMU:
++		if (w->shift == 7) {
++			snd_soc_component_update_bits(component,
++					    CDC_A_MICB_1_INT_RBIAS,
++					    MICB_1_INT_TX1_INT_PULLUP_EN_MASK,
++					    MICB_1_INT_TX1_INT_PULLUP_EN_TX1N_TO_MICBIAS);
++		} else if (w->shift == 1) {
++			snd_soc_component_update_bits(component,
++					    CDC_A_MICB_1_INT_RBIAS,
++					    MICB_1_INT_TX3_INT_PULLUP_EN_MASK,
++					    MICB_1_INT_TX3_INT_PULLUP_EN_TX1N_TO_MICBIAS);
++		}
+ 		break;
+ 	}
+ 
+@@ -924,7 +942,8 @@ static int pm8916_wcd_analog_probe(struct snd_soc_component *component)
+ 			    RST_CTL_DIG_SW_RST_N_MASK,
+ 			    RST_CTL_DIG_SW_RST_N_REMOVE_RESET);
+ 
+-	pm8916_wcd_setup_mbhc(priv);
++	if (priv->mbhc_btn_enabled || priv->jack_gpio.report)
++		pm8916_wcd_setup_mbhc(priv);
+ 
+ 	return 0;
+ }
+@@ -1124,14 +1143,14 @@ static const struct snd_soc_dapm_widget pm8916_wcd_analog_dapm_widgets[] = {
+ 
+ 	SND_SOC_DAPM_SUPPLY("MIC BIAS Internal1", CDC_A_MICB_1_INT_RBIAS, 7, 0,
+ 			    pm8916_wcd_analog_enable_micbias_int,
+-			    SND_SOC_DAPM_PRE_PMU),
++			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+ 	SND_SOC_DAPM_SUPPLY("MIC BIAS Internal2", CDC_A_MICB_1_INT_RBIAS, 4, 0,
+ 			    pm8916_wcd_analog_enable_micbias_int2,
+ 			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+ 			    SND_SOC_DAPM_POST_PMD),
+ 	SND_SOC_DAPM_SUPPLY("MIC BIAS Internal3", CDC_A_MICB_1_INT_RBIAS, 1, 0,
+ 			    pm8916_wcd_analog_enable_micbias_int,
+-			    SND_SOC_DAPM_PRE_PMU),
++			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+ 
+ 	SND_SOC_DAPM_ADC_E("ADC1", NULL, CDC_A_TX_1_EN, 7, 0,
+ 			   pm8916_wcd_analog_enable_adc,
+@@ -1414,10 +1433,9 @@ static int pm8916_wcd_analog_parse_dt(struct device *dev,
+ 	}
+ 
+ 	if (!priv->mbhc_btn_enabled)
+-		dev_err(dev,
++		dev_dbg(dev,
+ 			"DT property missing, MBHC btn detection disabled\n");
+ 
+-
+ 	return 0;
+ }
+ 
+@@ -1438,7 +1456,7 @@ static int pm8916_wcd_analog_spmi_probe(struct platform_device *pdev)
+ 	for (i = 0; i < ARRAY_SIZE(supply_names); i++)
+ 		priv->supplies[i].supply = supply_names[i];
+ 
+-	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(priv->supplies),
++	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(supply_names),
+ 				    priv->supplies);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to get regulator supplies %d\n", ret);
+@@ -1452,7 +1470,7 @@ static int pm8916_wcd_analog_spmi_probe(struct platform_device *pdev)
+ 		priv->jack_gpio.jack_status_check =
+ 			pm8916_wcd_analog_jack_status_check;
+ 		priv->jack_gpio.data = priv;
+-	} else {
++	} else if (priv->mbhc_btn_enabled) {
+ 		irq = platform_get_irq_byname(pdev, "mbhc_switch_int");
+ 		if (irq < 0)
+ 			return irq;
+diff --git aa/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts bb/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+index 1c6f14c..2491729 100644
+--- aa/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
++++ bb/arch/arm64/boot/dts/qcom/apq8053-lenovo-cd-18781y.dts
+@@ -525,6 +525,13 @@ &mpss {
+ };
+ 
+ &pm8953_pon {
++	/*
++	 * No battery and no power key: the always-present supply counts as a
++	 * power-on event, so clear the cable-power/charger triggers to make
++	 * poweroff stay off until the supply is removed.
++	 */
++	qcom,pon-reset-off;
++
+ 	/* Device doesn't have a power key */
+ 	pwrkey {
+ 		status = "disabled";
+@@ -590,6 +597,9 @@ &pri_mi2s_sleep
+ 
+ 	status = "okay";
+ 
++	/* Disable unused voice DAI link from msm8953.dtsi */
++	/delete-node/ voicemmode1-dai-link;
++
+ 	quaternary-mi2s-dai-link {
+ 		link-name = "Quaternary MI2S";
+ 		cpu {
+@@ -982,6 +992,7 @@ &usb3 {
+ 
+ &venus {
+ 	/* Signed for this board; loaded from the device's own modem partition. */
++	/* image ships flat venus.* files (symlinks into the modem partition) */
+ 	firmware-name = "venus.mdt";
+ 
+ 	status = "okay";
