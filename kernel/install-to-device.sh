@@ -60,6 +60,7 @@ install -m 644 /tmp/tas5782m_dsp_lenovo_cd-18781y.bin /lib/firmware/tas5782m_dsp
 install -m 644 /tmp/tas5782m_dsp_lenovo_cd-18781y.bin /lib/firmware/tas5728m_dsp_lenovo_cd-18781y.bin
 
 tar -C / -xf /tmp/overlay.tar
+chmod 755 /usr/local/bin/tsv-clock /usr/local/bin/tsv-kiosk-session /usr/local/bin/tsv-kiosk.py
 rm -f /etc/systemd/system/multi-user.target.wants/i2c1-pinmux-fix.service \
       /etc/systemd/system/multi-user.target.wants/qup-i2c-pinctrl-fix.service \
       /etc/systemd/system/multi-user.target.wants/pmos-audio-route.service \

@@ -203,6 +203,10 @@ if [ -n "$V3_BIN" ]; then
 	[ -f "$TSV_ASSETS" ] || { echo "Missing $TSV_ASSETS" >&2; exit 1; }
 	zstd -dc "$TSV_ASSETS" | sudo tar -x --numeric-owner -p -C "$R"
 	sudo install -o 0 -g 0 -m 755 "$V3_BIN" "$R/usr/local/bin/tsv-voice"
+	local_cam="$(dirname "$V3_BIN")/tsvcam"
+	if [ -f "$local_cam" ]; then
+		sudo install -o 0 -g 0 -m 755 "$local_cam" "$R/usr/local/bin/tsvcam"
+	fi
 	if [ -f "$ROOT/tsv/deploy/edge-tts" ]; then
 		sudo install -o 0 -g 0 -m 755 "$ROOT/tsv/deploy/edge-tts" "$R/usr/local/bin/edge-tts"
 	fi
